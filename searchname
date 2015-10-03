@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+
+DATABASE="cards.db"
+
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ]
+)
+
+@objects = :cards
+
+opts.each do |opt,arg|
+  case opt
+  when '--help'
+    puts <<-END
+find [--help] 
+  display this message
+find girl
+  list all live cards matching the provided name
+END
+  end
+end
+
+def output(query)
+  SQLite3::Database.new( DATABASE ) do |db|
+    Model.do_search(db, query).each do |card|
+      puts card.pretty
+    end
+  end
+end
+
+if ARGV.empty?
+  output(Search.new)
+else
+  ARGV.each do |pattern|
+    query = Search.new
+
+    if pattern.include? '*'
+      query.like("name", pattern.gsub('*', '%'))
+    else
+      query.match("name", pattern)
+    end
+    output(query)
+  end
+end

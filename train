@@ -1,0 +1,32 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require './model.rb'
+
+DATABASE="cards.db"
+
+
+def fail(msg)
+  puts msg
+  puts "Usage: train <target> <attack> <defense> <tags> <material>"
+  exit(1)
+end
+
+( target, a, d, tags, material ) = ARGV
+
+fail( "No material" ) if material.nil?
+
+SQLite3::Database.new( DATABASE ) do |db|
+
+  cs = Cardstate.new({ "card" => target});
+  used = Cardstate.new({ "card" => material })
+
+  cs.fetch(db)
+  fail( "Cannot find card #{target}" ) if cs["name"].nil?
+  used.fetch(db)
+  fail( "Cannot find card #{material}" ) if used["name"].nil?
+
+  puts( "Training #{cs["name"]}(#{target}) to attack #{a}, defense #{d}
+Using #{used["name"]}(#{used["card"]})" )
+
+  cs.train( a, d, tags, material )
+end

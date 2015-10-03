@@ -1,0 +1,41 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'csv'
+require './model.rb'
+
+DATABASE="cards.db"
+
+fields = %w( name rarity level attribute cost attack defense tags skillrefs )
+numbers = %w( level attack defense )
+
+rowno=0
+CSV.foreach(ARGV[0]) do |row|
+  if rowno > 0 then
+    input = {}
+    colno = 0
+    fields.each do |f|
+      if f == "rarity" then
+        parts = row[colno].split('.')
+        input["rarity"] = parts[0].to_i
+        input["trained"] = 1 if parts.length > 1
+      else
+        val = row[colno]
+        if val then
+          if numbers.include? f then
+            input[f] = val.to_i
+          else
+            input[f] = val
+          end
+        end
+      end
+      colno = colno+1
+    end
+    if input["attribute"]==nil then input["attribute"] = "-" ; end
+    puts input.inspect
+    
+    cs=Cardstate.new(input)
+    cs.save
+    puts cs unless cs.valid?
+  end
+  rowno = rowno + 1
+end

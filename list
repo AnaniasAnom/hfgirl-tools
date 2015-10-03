@@ -1,0 +1,139 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+require './deck.rb'
+
+#loaded on demand so that we can work without rglpk present
+autoload(:Optimiser, './optimiser.rb')
+
+DATABASE="cards.db"
+
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+  [ '--attrib', '-a', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--name', '-n', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--order', '-o', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--indeck', '-d', GetoptLong::NO_ARGUMENT ],
+  [ '--free', '-f', GetoptLong::NO_ARGUMENT ],
+  [ '--exclude', '-x', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--exclude-deck', '-X', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--best', '-b', GetoptLong::REQUIRED_ARGUMENT ]
+)
+
+@objects = :cards
+
+Usage = <<-END
+list --help
+  display this message
+list [--indeck | --free] [--attrib attribute] [--order order[-][/]] [--best N]
+  list all live cards
+  sorted by the given field (reversed if -suffixed)
+  divided by the cost field if / suffixed
+  --attrib attribute : Only those with the given attribute
+  --name name : Only those matching the given name
+  --indeck : say what decks each card is in
+  --free   : only list cards that are not in any deck
+  --exclude C1,C2 : cards C1,C2,... are excluded
+  --exclude-deck D1,D2... : members of decks D1,D2.. are excluded
+  --best N : show the best 5 cards of the selected, by attack
+             unless order is defense, within the total N
+END
+
+query = Search.new.live
+show_decks = false
+filter_decks = false
+decks = []
+goal = "attack"
+strength = nil
+cardsX = []
+decksX = []
+
+opts.each do |opt,arg|
+  case opt
+  when '--help'
+    puts Usage
+  when '--attrib'
+    query.match("attribute", arg)
+  when '--name'
+    if arg.include? '*'
+      query.like("name", arg.gsub('*', '%'))
+    else
+      query.match("name", arg)
+    end
+  when '--order'
+    direction = :+
+    ratio = false
+    field = arg
+    while ( ! (field =~ /[a-zA-Z]$/) ) do
+      case field[-1]
+      when '-'
+        direction = :-
+        field = field[0..-2]
+      when '/'
+        ratio = true
+        field = field[0..-2]
+      else
+        raise "invalid char in #{arg}"
+      end
+    end
+    goal = field if ( field == "defense" )
+
+    if ratio
+      query.byrate(field, direction)
+    else
+      query.by(field, direction)
+    end
+  when '--indeck'
+    show_decks = true
+  when '--free'
+    filter_decks = true
+  when '--exclude'
+    cardsX = arg.split(',')
+  when '--exclude-deck'
+    decksX = arg.split(',')
+  when '--best'
+    strength = arg
+  else
+  end
+end
+
+SQLite3::Database.new( DATABASE ) do |db|
+  if show_decks || filter_decks then
+    decks = Model.current_decks(db)
+  end
+
+  exclusions = cardsX.map(&:to_i) + decksX.flat_map do |deck_id|
+    deck = Deck.from_db(db, deck_id)
+    raise "Invalid deck #{deck_id} in exclusion list" if deck.nil?
+    deck.memberIds
+  end
+  
+  cardset = Model.do_search(db, query).reject { |c| exclusions.include?(c["card"]) }
+  
+  cardset.each do |card|
+    roles = (decks.map { |deck| [ deck, deck.card_role( card["card"] ) ] } ).reject { |pair| pair[1].nil? }
+    
+    if (!strength && ( !filter_decks || roles.empty? )) then
+      puts card.pretty
+    end
+
+    if ( show_decks ) then
+      roles.each do |pair|
+        puts "Deck \##{pair[0].name}: #{Model.normalize_role(pair[1])}"
+      end
+    end
+  end
+
+  if strength then
+    puts "Analysing...\n"
+    optimiser = Optimiser.new(cardset)
+    optimiser.mode = goal
+    optimiser.strength = strength
+    result = optimiser.execute_glpk
+    result.each { |c| puts c.pretty }
+    print "Total #{goal} with cost #{result.map { |c| c["cost"] }.inject(:+)}: "
+    puts result.map { |c| c[goal] }.inject(:+)
+  end
+end
+

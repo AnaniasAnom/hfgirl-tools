@@ -1,0 +1,71 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+
+DATABASE="cards.db"
+
+SQLite3::Database.new( DATABASE ) do |db|
+  db.execute( "create table if not exists cardstate (
+id INTEGER PRIMARY KEY,
+card INTEGER NOT NULL,
+version INTEGER NOT NULL DEFAULT 1,
+name INTEGER NOT NULL,
+rarity INTEGER DEFAULT 1,
+trained INTEGER DEFAULT 0,
+level INTEGER DEFAULT 1,
+attribute TEXT,
+cost INTEGER,
+attack INTEGER,
+defense INTEGER,
+affection INTEGER DEFAULT 0,
+tags TEXT DEFAULT '',
+skillrefs TEXT DEFAULT '',
+season INTEGER DEFAULT 1,
+live INTEGER DEFAULT 1)");
+
+  db.execute( "create unique index if not exists statesbycard on cardstate (card, version)" );
+
+  db.execute( "create table if not exists cardtransition (
+id INTEGER PRIMARY KEY,
+transition INTEGER,
+oldstate INTEGER REFERENCES cardstate (id),
+cardstate INTEGER NOT NULL REFERENCES cardstate (id),
+role TEXT,
+transitiontype TEXT,
+timestamp INTEGER )" );
+
+  db.execute( "create index if not exists transitionsfrom on cardtransition (oldstate)" );
+  db.execute( "create index if not exists transitionsto on cardtransition (cardstate)" );
+
+  db.execute( "create table if not exists globals (
+only INTEGER UNIQUE CHECK ( only = 0 ),
+cardcounter INTEGER,
+transitioncounter INTEGER
+)" );
+  begin
+    db.execute( "insert into globals (only, cardcounter, transitioncounter) values (0,0,0)" );
+  rescue SQLite3::ConstraintException
+    puts "globals already set"
+  end
+
+  # Deck
+
+  db.execute( "create table if not exists deckstate (
+id INTEGER PRIMARY KEY,
+deck NOT NULL,
+version INTEGER NOT NULL )" );
+  db.execute( "create table if not exists deploymentstate (
+id INTEGER PRIMARY KEY,
+card INTEGER NOT NULL REFERENCES cardstate (card),
+deckstate INTEGER NOT NULL REFERENCES deckstate (id),
+role TEXT NOT NULL,
+position INTEGER )" );
+  db.execute( "create table if not exists decktransition (
+oldstate INTEGER REFERENCES deckstate (id),
+newstate INTEGER NOT NULL REFERENCES deckstate (id),
+timestamp INTEGER NOT NULL )" );
+  db.execute( "create index if not exists deckname on deckstate (deck)" );
+  db.execute( "create index if not exists depbycard on deploymentstate (card)" );
+  db.execute( "create index if not exists depbydeck on deploymentstate (deckstate)" );
+              
+end
+

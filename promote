@@ -1,0 +1,35 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require './model.rb'
+
+DATABASE="cards.db"
+
+def fail(msg)
+  puts msg
+  exit(1)
+end
+
+( target, level, a, d, *materials ) = ARGV
+
+fail( "No materials given" ) if materials.empty?
+
+SQLite3::Database.new( DATABASE ) do |db|
+
+  cs = Cardstate.new({ "card" => target});
+
+  used = materials.map {|m| Cardstate.new( {"card" => m} )}
+
+  cs.fetch(db)
+  fail( "Cannot find card #{target}" ) if cs["name"].nil?
+
+  used.each do |m|
+    m.fetch(db)
+    fail( "Cannot find card #{m}" ) if m["name"].nil?
+  end
+
+  puts( "Promoting #{cs["name"]}(#{target}) to \n\tlevel #{level}
+\tattack #{a}, defense #{d}\nUsing " +
+        (used.map { |m| "#{m["name"]}(#{m["card"]})" }).join(", ") )
+
+  cs.promote( level, a, d, materials )
+end

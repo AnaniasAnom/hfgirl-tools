@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+require './deck.rb'
+
+DATABASE="cards.db"
+
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ]
+)
+
+@objects = :cards
+
+Helpstr = <<-END
+setdeck --help
+setdeck name leader:a1,a2...:d1,d2...
+END
+
+opts.each do |opt,arg|
+  case opt
+  when '--help'
+    puts Helpstr
+  end
+end
+
+def quit
+  puts Helpstr
+  exit(1)
+end
+
+def parse_deck(str)
+  (l,a,d,err) = str.split(':')
+  raise "bad deck syntax #{str}" unless err.nil?
+  [l, a.split(','), d.split(',')]
+end
+
+deckname = ARGV.shift || quit
+deckstr = ARGV.shift || quit
+
+deck = Deck.new( *parse_deck(deckstr) )
+
+SQLite3::Database.new( DATABASE ) do |db|
+  deck.set_as(db,deckname)
+end

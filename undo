@@ -1,0 +1,65 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+
+DATABASE="cards.db"
+
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+  [ '--query', '-q', GetoptLong::NO_ARGUMENT ]
+)
+
+Usage = %(
+undo [-q] 
+undo the last transaction (just query it if -q)
+)
+
+newstates =[]
+query = false;
+
+opts.each do |opt,arg|
+  case opt
+  when '--help'
+    puts Usage
+    exit(0)
+  when '--query'
+    query = true
+  end
+end
+
+
+SQLite3::Database.new( DATABASE ) do |db|
+  trans = db.get_first_value( "select max(transition) from cardtransition" )
+
+  data = db.execute( "select
+ role, transitiontype, timestamp, 
+ c1.card, c1.name, c2.card, c2.name, c2.live, cardstate
+ from cardtransition
+ left outer join cardstate c1 on c1.id = oldstate
+ inner join cardstate c2 on c2.id = cardstate
+ where transition = ?", [ trans ] )
+  
+  data.each do |card|
+    (role, type, timestamp, c1, c1name, c2, c2name, c2live_i, newstate) = card
+    c2live=(c2live_i>0)
+    identity = "#{c2name}(#{c2})"
+    if c1 && c2live then
+      puts "#{identity} modified as #{role} in #{type}"
+    elsif c1 && !c2live then
+      puts "#{identity} used up as #{role} in #{type}"
+    else
+      puts "#{identity} created"
+    end
+    newstates.push newstate    
+  end
+
+  unless query then
+    db.transaction do
+      db.execute("delete from cardtransition where transition = ?", [trans])
+      newstates.each do |id|
+        db.execute("delete from cardstate where id = ?", [id]);
+      end
+    end
+  end
+end

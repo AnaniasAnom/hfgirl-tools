@@ -1,0 +1,77 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+
+DATABASE="cards.db"
+
+class Addcard
+  def initialize
+    opts = GetoptLong.new(
+      [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+      [ '--source', '-s', GetoptLong::REQUIRED_ARGUMENT ],
+      [ '--quiet', '-q', GetoptLong::NO_ARGUMENT ]
+    )
+
+    @source = 'create'
+    @print = true
+    
+    opts.each do |opt,arg|
+      case opt
+      when '--help'
+        puts <<-END
+addcard [--help] [--source SOURCE] key=value...
+ -h, --help:
+  show help
+ -s, --source SOURCE:
+  set source
+ key=value:
+  non-default fields set
+END
+      when '--source'
+        @source = arg
+      when '--quiet'
+        @print = false
+      end
+    end
+  end
+
+  def assignments(args)
+    temp_values = {}
+    args.each do |kv|
+      (k,v)=kv.split('=')
+
+      if ( k == "attack" ) then
+        combat = v.split(',')
+        temp_values[k] = combat[0]
+        temp_values["defense"] = combat[1] if combat.length > 1
+      else      
+        temp_values[k] = v
+      end
+    end
+    temp_values
+  end
+
+  def add
+    map = assignments(ARGV)
+    @card = Cardstate.new(map)
+
+    if @card["card"] then
+      puts "Cannot supply a card id for a new card"
+      exit 1
+    end
+
+    unless @card.valid? then
+      puts "Required fields not present"
+      exit 1
+    end
+
+    @card.source = @source
+    @card.save
+    @card.load
+    puts @card.pretty if @print
+  end
+end
+
+
+Addcard.new.add

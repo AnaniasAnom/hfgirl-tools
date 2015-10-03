@@ -1,0 +1,32 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+
+DATABASE="cards.db"
+
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ]
+)
+
+@objects = :cards
+
+opts.each do |opt,arg|
+  case opt
+  when '--help'
+    puts <<-END
+search [--help] 
+  display this message
+search [sql]
+  list all live cards, sorting and filtering using the sql suffix provided
+END
+  end
+end
+
+searchstring = " where live = 1"
+
+searchstring = ARGV.shift unless ARGV.empty?
+
+Model.search(searchstring).each do |card|
+  puts card.pretty
+end
