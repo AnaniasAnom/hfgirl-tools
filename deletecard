@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require './model.rb'
+
+DATABASE="cards.db"
+
+def fail(msg)
+  puts msg
+  exit(1)
+end
+
+target = ARGV[0]
+
+fail( "No card given" ) if target.nil?
+
+SQLite3::Database.new( DATABASE ) do |db|
+  cs = Cardstate.new({ "card" => target});
+  cs.fetch(db)
+  cs.delete(db)
+end

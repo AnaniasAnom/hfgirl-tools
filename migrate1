@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+
+DATABASE="cards.db"
+
+SQLite3::Database.new( DATABASE ) do |db|
+
+  db.execute( "create table cardtransition_temp (
+id INTEGER PRIMARY KEY,
+transition INTEGER,
+oldstate INTEGER,
+cardstate INTEGER,
+role TEXT,
+transitiontype TEXT,
+timestamp INTEGER )" );
+
+  db.execute("insert into cardtransition_temp
+(transition, oldstate, cardstate, role, transitiontype, timestamp)
+
+select tr1.transition,
+case s2-s1 when 0 then null else s1 end oldstate,
+s2 cardstate, tr2.role, tr2.transitiontype, tr2.timestamp
+from (select transition, card, min(cardstate) s1, max(cardstate) s2
+from cardtransition, cardstate c where cardstate = c.id
+group by transition, card) tr1 inner join cardtransition tr2
+on s1 = tr2.cardstate and tr1.transition = tr2.transition");
+
+  db.execute("drop table cardtransition");
+  
+  db.execute( "create table cardtransition (
+id INTEGER PRIMARY KEY,
+transition INTEGER,
+oldstate INTEGER,
+cardstate INTEGER,
+role TEXT,
+transitiontype TEXT,
+timestamp INTEGER )" );
+
+  db.execute("insert into cardtransition (transition,oldstate,cardstate,role,transitiontype,timestamp)
+select transition,oldstate,cardstate,role,transitiontype,timestamp from cardtransition_temp");
+
+  db.execute("drop table cardtransition_temp")
+
+end
+

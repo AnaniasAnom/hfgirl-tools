@@ -8,21 +8,31 @@ DATABASE="cards.db"
 
 opts = GetoptLong.new(
   [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
-  [ '--deck', '-d', GetoptLong::NO_ARGUMENT ]
+  [ '--deck', '-d', GetoptLong::NO_ARGUMENT ],
+  [ '--tags', '-t', GetoptLong::NO_ARGUMENT ],
+  [ '--brief', '-b', GetoptLong::NO_ARGUMENT ]
 )
 
 @objects = :cards
+@show_tags = false
+@display = :full
 
 opts.each do |opt,arg|
   case opt
   when '--help'
     puts <<-END
 show [--help] 
-show cardid cardid...
-show --deck deckstring deckstring...
+show [-b] [-t] cardid cardid...
+show [-b] [-t] --deck deckstring deckstring...
+ --tags : include tag information
+ --brief : brief output, card ids only
 END
   when '--deck'
     @objects = :decks
+  when '--tags'
+    @show_tags = true
+  when '--brief'
+    @display = :brief
   end
 end
 
@@ -38,13 +48,18 @@ SQLite3::Database.new( DATABASE ) do |db|
     ARGV.each do |arg|
       cs = Cardstate.new({ "card" => arg});
       cs.fetch(db)
-      puts cs.pretty
 
-      decks.each do |deck|
-        role = deck.card_role(arg.to_i)
-        if role then
-          puts "Deck \##{deck.name}: #{Model.normalize_role(role)}"
+      if @display == :full then
+        puts cs.pretty(@show_tags)
+
+        decks.each do |deck|
+          role = deck.card_role(arg.to_i)
+          if role then
+            puts "Deck \##{deck.name}: #{Model.normalize_role(role)}"
+          end
         end
+      else
+        puts arg
       end
     end
   else
@@ -57,7 +72,11 @@ SQLite3::Database.new( DATABASE ) do |db|
       end
 
       if deck
-        puts deck.full_info
+        if @display == :full then
+          puts deck.full_info(@show_tags)
+        else
+          puts deck.to_s
+        end
       else
         puts "Cannot find or parse deck #{arg}"
       end

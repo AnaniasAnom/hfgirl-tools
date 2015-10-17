@@ -1,0 +1,32 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require './model.rb'
+
+DATABASE="cards.db"
+
+Usage = "Affect <card> <new_attack> <new_defense>"
+
+def fail(msg)
+  puts msg
+  puts Usage
+  exit(1)
+end
+
+( target, a, d ) = ARGV
+
+if ( target.nil? || (target=="-h") || (target=="--help") ) then
+  puts Usage
+  exit(0)
+end
+
+SQLite3::Database.new( DATABASE ) do |db|
+
+  cs = Cardstate.new({ "card" => target});
+
+  cs.fetch(db)
+  fail( "Cannot find card #{target}" ) if cs["name"].nil?
+
+  puts( "Updating #{cs["name"]}(#{target}) to attack #{a}, defense #{d}\ndue to Affection Max reached")
+
+  cs.affect( a, d )
+end

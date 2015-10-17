@@ -18,15 +18,20 @@ opts = GetoptLong.new(
   [ '--free', '-f', GetoptLong::NO_ARGUMENT ],
   [ '--exclude', '-x', GetoptLong::REQUIRED_ARGUMENT ],
   [ '--exclude-deck', '-X', GetoptLong::REQUIRED_ARGUMENT ],
-  [ '--best', '-b', GetoptLong::REQUIRED_ARGUMENT ]
+  [ '--best', '-B', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--trained', '-t', GetoptLong::NO_ARGUMENT ],
+  [ '--untrained', '-T', GetoptLong::NO_ARGUMENT ],
+  [ '--brief', '-b', GetoptLong::NO_ARGUMENT ],
+  [ '--max', '-m', GetoptLong::REQUIRED_ARGUMENT ]
 )
 
 @objects = :cards
+@display = :full
 
 Usage = <<-END
 list --help
   display this message
-list [--indeck | --free] [--attrib attribute] [--order order[-][/]] [--best N]
+list [--indeck | --free] [--brief] [--attrib attribute] [--order order[-][/]] [--best N]
   list all live cards
   sorted by the given field (reversed if -suffixed)
   divided by the cost field if / suffixed
@@ -38,6 +43,9 @@ list [--indeck | --free] [--attrib attribute] [--order order[-][/]] [--best N]
   --exclude-deck D1,D2... : members of decks D1,D2.. are excluded
   --best N : show the best 5 cards of the selected, by attack
              unless order is defense, within the total N
+  --trained|untrained : show only trained or untrained cards
+  --brief : show only card numbers, no description
+  --max N : show only N cards
 END
 
 query = Search.new.live
@@ -48,6 +56,7 @@ goal = "attack"
 strength = nil
 cardsX = []
 decksX = []
+max = nil
 
 opts.each do |opt,arg|
   case opt
@@ -61,6 +70,10 @@ opts.each do |opt,arg|
     else
       query.match("name", arg)
     end
+  when '--trained'
+    query.above("trained", 0)
+  when '--untrained'
+    query.match("trained", 0)
   when '--order'
     direction = :+
     ratio = false
@@ -88,13 +101,25 @@ opts.each do |opt,arg|
     show_decks = true
   when '--free'
     filter_decks = true
+  when '--max'
+    max = Integer(arg)
   when '--exclude'
     cardsX = arg.split(',')
   when '--exclude-deck'
     decksX = arg.split(',')
   when '--best'
     strength = arg
+  when '--brief'
+    @display = :brief
   else
+  end
+end
+
+def cardstring(card)
+  if @display == :full
+    card.pretty
+  else
+    card["card"]
   end
 end
 
@@ -109,13 +134,22 @@ SQLite3::Database.new( DATABASE ) do |db|
     deck.memberIds
   end
   
+  # filter out those in decks if requested
+  if (filter_decks) then
+    exclusions = exclusions +
+                 decks.flat_map { |x| x.memberIds }
+  end
+  
   cardset = Model.do_search(db, query).reject { |c| exclusions.include?(c["card"]) }
+
+  # if the optimiser is running, max applies to its target not its input
+  cardset = cardset.take(max) if (max && !strength)
   
   cardset.each do |card|
     roles = (decks.map { |deck| [ deck, deck.card_role( card["card"] ) ] } ).reject { |pair| pair[1].nil? }
     
-    if (!strength && ( !filter_decks || roles.empty? )) then
-      puts card.pretty
+    if (!strength) then
+      puts cardstring(card)
     end
 
     if ( show_decks ) then
@@ -130,8 +164,9 @@ SQLite3::Database.new( DATABASE ) do |db|
     optimiser = Optimiser.new(cardset)
     optimiser.mode = goal
     optimiser.strength = strength
+    optimiser.size = max if max # default is 5
     result = optimiser.execute_glpk
-    result.each { |c| puts c.pretty }
+    result.each { |c| puts cardstring(c) }
     print "Total #{goal} with cost #{result.map { |c| c["cost"] }.inject(:+)}: "
     puts result.map { |c| c[goal] }.inject(:+)
   end

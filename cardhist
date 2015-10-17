@@ -1,0 +1,35 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+require './deck.rb'
+require './optimiser.rb'
+
+DATABASE="cards.db"
+
+Usage = %(
+cardhist [--help] cardid
+  --help : show this help message
+)
+
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+  [ '--full', '-f', GetoptLong::NO_ARGUMENT ]
+)
+opts.each do |opt,arg|
+  case opt
+  when '--help'
+    puts Usage
+    exit(0)
+  end
+end
+
+SQLite3::Database.new(DATABASE) do |db|
+  data = Model.history(db,ARGV[0])
+
+  data.each do |v|
+    puts "#{v[:role]} in #{v[:action]} #{v[:transition]} (#{v[:timestamp]})"
+    puts v[:state].pretty
+  end
+end
+

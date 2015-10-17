@@ -27,6 +27,9 @@ searchstring = " where live = 1"
 
 searchstring = ARGV.shift unless ARGV.empty?
 
-Model.search(searchstring).each do |card|
-  puts card.pretty
+SQLite3::Database.new( DATABASE ) do |db|
+  Model.search(db, searchstring).each do |card|
+    puts card.pretty
+  end
 end
+

@@ -3,20 +3,36 @@ require './model.rb'
 class Deck
   attr_accessor :name
   attr_reader :leaderId, :attackerIds, :defenderIds
+
   
   def initialize(l, as, ds)
     @name = "new deck"
+
+    if l.is_a?(Cardstate) then 
+      @leaderId = l["card"]
+      @attackerIds = as.map { |c| c["card"] }
+      @defenderIds = ds.map { |c| c["card"] }
+
+      @leader = l
+      @attackers = as.clone
+      @defenders = ds.clone
+    else
+      @leaderId = l
+      @attackerIds = as
+      @defenderIds = ds
     
-    @leaderId = l
-    @attackerIds = as
-    @defenderIds = ds
-    
-    @leader = nil
-    @attackers = Array.new(4)
-    @defenders = Array.new(4)
+      @leader = nil
+      @attackers = Array.new(4)
+      @defenders = Array.new(4)
+    end
 
     dups = dupcheck
     raise "Duplicate card #{dups}" if dups
+  end
+
+  def set_name(n)
+    @name = n
+    self
   end
 
   def self.exists?(db, deckname)
@@ -112,11 +128,11 @@ class Deck
     [ [ @leader["card"] ], @attackers.map { |x| x["card"] }.join(','), @defenders.map { |x| x["card"] }.join(',') ].join(':')
   end
 
-  def full_info
-    "Leader:\n#{@leader.pretty}\n" +
-      ( @attackers.map.with_index { |c, i| "Attacker #{i+1}:\n#{c.pretty}" } ).join +
+  def full_info( tags = false )
+    "Leader:\n#{@leader.pretty(tags)}\n" +
+      ( @attackers.map.with_index { |c, i| "Attacker #{i+1}:\n#{c.pretty(tags)}" } ).join +
       "\n" +
-      ( @defenders.map.with_index { |c, i| "Defender #{i+1}:\n#{c.pretty}" } ).join +
+      ( @defenders.map.with_index { |c, i| "Defender #{i+1}:\n#{c.pretty(tags)}" } ).join +
       "\nAttack Strength: #{attack}\nDefense Strength #{defense}\n" +
       if coord_a? then
         "Coordinated #{Model.normalize_attribute(@leader["attribute"])}"

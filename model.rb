@@ -5,7 +5,7 @@ class Models
     @constant = %w(card version name attribute tags skillrefs season)
     @counters = %w(cardcounter transitioncounter)
     @attributes = %w(Lady Teen Chick Madame -)
-    @rarities = %w(Common Uncommon Rare SuperRare UltraRare Legendary Ultimate)
+    @rarities = %w(Common UnCommon Rare SuperRare UltraRare Legendary Ultimate)
     @roles = %w(Leader Attacker Defender)
   end
   
@@ -21,6 +21,20 @@ from cardstate cs group by card) on cards.card = c and cards.version = last "
     end
     result
   end
+
+  def history(db, card)
+    base = "select c.#{fields.join(", c.")}, c.id, t.transition, c.version, t.timestamp, t.transitiontype, t.role from cardstate c inner join cardtransition t on c.id = t.cardstate where c.card = ? order by c.version"
+    db.execute(base, [card]).map do |state|
+      card_params = fields.zip(state).to_h
+      transition_params = state.last(5)
+      { :transition => transition_params[0],
+        :version => transition_params[1],
+        :timestamp => transition_params[2],
+        :action => transition_params[3],
+        :role => transition_params[4],
+        :state => Cardstate.new(card_params) }
+    end
+  end    
 
   def do_search(db, params)
     search(db, params.to_s, params.values)
@@ -45,8 +59,10 @@ from cardstate cs group by card) on cards.card = c and cards.version = last "
 
   def normalize_rarity(string)
     return string if string.to_i > 0
+    up = string.upcase
     
-    @rarities.find_index(string[0].upcase+string[1..-1].downcase) + 1
+    i = @rarities.find_index { |r| r.upcase == up }
+    i && i+1
   end
 
   def normalize_role(string)
@@ -80,6 +96,8 @@ class Cardstate
       if field == "attribute" then
         norm_value = Model.normalize_attribute(value)[0]
         raise "invalid attribute #{value}" unless norm_value
+      elsif field == "rarity" then
+        norm_value = Model.normalize_rarity(value)
       else
         norm_value = value
       end
@@ -193,12 +211,13 @@ values (?, ?, 'result', ?, datetime('now'))", [ transition, @values["id"], trans
     end
   end
 
-  def pretty
+  def pretty( tags = false )
     stars = "%-6s" % ("\u2605"*self["rarity"]+"+"*self["trained"])
     if live?
-      "%3d. %s \033[1m%s\033[0m\nLvl %-3d %-6s Cost: %2d  Attack %4d Defense %4d\n" %
+      if tags then extra = "Tags: #{self["tags"]}\n" else extra = "" end
+      "%3d. %s \033[1m%s\033[0m\nLvl %-3d %-6s Cost: %2d  Attack %4d Defense %4d\n%s" %
         [ self["card"], stars, self["name"], self["level"], Model.normalize_attribute(self["attribute"]),
-          self["cost"], self["attack"], self["defense"] ]
+          self["cost"], self["attack"], self["defense"], extra ] 
     else
       "Dead card %3d. %s %s\n" % [ self["card"], stars, self["name"] ]
     end
@@ -260,6 +279,23 @@ values (?, ?, 'result', ?, datetime('now'))", [ transition, @values["id"], trans
     end
   end
 
+  def affect(new_attack, new_defense)
+    SQLite3::Database.new( DATABASE ) do |db|
+      db.transaction do
+        
+        fetch(db)
+        old_id = @values["id"]
+        @values["version"] = @values["version"]+1
+        @values["attack"] = new_attack
+        @values["defense"] = new_defense
+        insert_cardstate(db)
+
+        transition = get_counter(db, "transitioncounter")
+        insert_transition(db, transition, old_id, self["id"], 'target', 'affect', @timestamp)
+      end
+    end
+  end
+
   def train(new_attack, new_defense, new_tags, material)
     SQLite3::Database.new( DATABASE ) do |db|
       db.transaction do
@@ -287,6 +323,7 @@ values (?, ?, 'result', ?, datetime('now'))", [ transition, @values["id"], trans
           "defense" => new_defense,
           "cost" => self["cost"],
           "tags" => new_tags,
+          "skillrefs" => self["skillrefs"],
           "version" => 1,
           "card" => get_counter(db, "cardcounter")
         }
@@ -302,6 +339,60 @@ values (?, ?, 'result', ?, datetime('now'))", [ transition, @values["id"], trans
         remove(db, transition, 'target', 'train', @timestamp)
       end
     end
+  end
+
+  def clear(new_attack, new_defense, material)
+    SQLite3::Database.new( DATABASE ) do |db|
+      db.transaction do
+        fetch(db)
+
+        material_card = Cardstate.new({"card" => material }).fetch(db)
+
+        unless material_card.valid? && material_card.live?
+          raise "Could not find card #{m}"
+        end
+
+        me = "#{self["name"]}.#{self["rarity"]}"
+        it = "#{material_card["name"]}.#{material_card["rarity"]}"
+
+        if ( self["trained"] == 0 )
+          raise "Clear must be on trained card: #{me}"
+        end
+        
+        if ( me != it ) then
+          raise "Mismatch in training: #{me} vs #{it}"
+        end
+
+        trained_vals = {
+          "name" => self["name"],
+          "rarity" => self["rarity"],
+          "attribute" => self["attribute"],
+          "level" => self["level"],
+          "trained" => self["trained"]+1,
+          "attack" => new_attack,
+          "defense" => new_defense,
+          "cost" => self["cost"],
+          "tags" => self["tags"],
+          "version" => 1,
+          "card" => get_counter(db, "cardcounter")
+        }
+        new_card = Cardstate.new(trained_vals);
+        new_card.insert_cardstate(db);
+        new_card.fetch(db);
+        
+        transition = get_counter(db, "transitioncounter")
+        insert_transition(db, transition, nil, new_card["id"],
+                          'result', 'clear', @timestamp)
+
+        material_card.remove(db, transition, 'material', 'clear', @timestamp)
+        remove(db, transition, 'target', 'clear', @timestamp)
+      end
+    end
+  end
+
+  def delete(db)
+    transition = get_counter(db, "transitioncounter")
+    remove(db, transition, 'target', 'correction', @timestamp)
   end
 end
 
@@ -369,11 +460,17 @@ class Search
 
   def by(field, direction = :+)
     checkfield field
+    if field == "rarity"
+      expr = "(rarity*10+trained)"
+    else
+      expr = field
+    end
+    
     case direction
     when :+
-      @orders.push( field )
+      @orders.push( expr )
     when :-
-      @orders.push( "#{field} desc" )
+      @orders.push( "#{expr} desc" )
     else
       raise "invalid direction #{direction}"
     end

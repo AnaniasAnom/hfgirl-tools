@@ -3,7 +3,11 @@ require './model.rb'
 require 'rglpk.rb'
 
 class Optimiser
+  attr_accessor :size
+  
   def initialize(arg)
+    @size = 5
+    
     if arg.instance_of? Array then
       @source = :literal
       @cards = arg
@@ -22,7 +26,7 @@ class Optimiser
   end
     
   def greedy5
-    @cards.sort { |a,b| b[mode] <=> a[mode] }[0,5]
+    @cards.sort { |a,b| b[mode] <=> a[mode] }[0,@size]
   end
 
   def greedyN
@@ -42,13 +46,44 @@ class Optimiser
   end
 
   def dump
-    puts "Strongest 5 cards\n"
+    puts "Strongest #{size} cards\n"
     describe_candidate(greedy5)
     puts "Max power\n"
     describe_candidate(greedyN)
   end
 
-  def execute_glpk
+
+  def execute_glpk(overlap_with = [])
+    p = prepare_problem
+
+    row1data = @cards.map { |c| c["cost"] }
+    row2data = Array.new( @cards.length, 1 )
+    row3data = []
+    unless overlap_with.empty? then
+      row3data = add_overlap(p, overlap_with)
+    end
+
+    p.set_matrix( row1data + row2data + row3data )
+    p.mip( { :presolve => Rglpk::GLP_ON,
+             :br_tech => Rglpk::GLP_BR_DTH,
+             :pp_tech => Rglpk::GLP_PP_ALL,
+             :binarize => Rglpk::GLP_ON } )
+
+    @cards.zip(p.cols).reject { |p| p[1].mip_val == 0 }.map { |p| p[0] }
+  end
+
+  # This handles the requirement that a selection of 5 defense cards
+  # must share one leader card with the 5 attack cards (passed in target)
+  # It adds a row to the problem definition, and returns the values to
+  # use for that row
+  def add_overlap(problem, target)
+    row = problem.add_row
+    row.name = "overlap"
+    row.set_bounds(Rglpk::GLP_LO, 1, 0)
+    @cards.map { |c| if target.include?(c) then 1 else 0 end }
+  end
+    
+  def prepare_problem
     p = Rglpk::Problem.new
     p.name = "deck"
     p.obj.dir = Rglpk::GLP_MAX
@@ -57,7 +92,8 @@ class Optimiser
     rows[0].name = "cost"
     rows[0].set_bounds(Rglpk::GLP_UP, 0, strength)
     rows[1].name = "count"
-    rows[1].set_bounds(Rglpk::GLP_UP, 0, 5)
+#    rows[1].set_bounds(Rglpk::GLP_UP, 0, 5)
+    rows[1].set_bounds(Rglpk::GLP_FX, size, size)
 
     cols = p.add_cols(@cards.length)
     @cards.each_with_index do |card,i|
@@ -66,16 +102,7 @@ class Optimiser
     end
 
     p.obj.coefs = @cards.map { |c| c[mode] }
-
-    p.set_matrix( ( @cards.map { |c| c["cost"] } ) + Array.new( @cards.length, 1 ) )
-
-
-    p.mip( { :presolve => Rglpk::GLP_ON,
-             :br_tech => Rglpk::GLP_BR_DTH,
-             :pp_tech => Rglpk::GLP_PP_ALL,
-             :binarize => Rglpk::GLP_ON } )
-
-    @cards.zip(cols).reject { |p| p[1].mip_val == 0 }.map { |p| p[0] }
+    p
   end
 
   def to_gmpl

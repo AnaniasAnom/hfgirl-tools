@@ -1,0 +1,128 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require 'getoptlong'
+require './model.rb'
+require './deck.rb'
+require './optimiser.rb'
+
+DATABASE="cards.db"
+
+Usage = <<-END
+alldecks [--help] [--full] [--number 5] attackstrength defensestrength
+  --help : show this help message
+  --full : show full deck details
+  --number : show N decks (default 5)
+  --save : store the results in the database
+END
+
+class Deck_builder
+  def initialize
+    @mode = :brief
+    @save = false
+    @number = 5
+
+    @opts = GetoptLong.new(
+      [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+      [ '--full', '-f', GetoptLong::NO_ARGUMENT ],
+      [ '--save', '-s', GetoptLong::NO_ARGUMENT ],
+      [ '--number', '-n', GetoptLong::REQUIRED_ARGUMENT]
+    )
+
+    read_opts
+  end
+
+
+  def read_opts()
+    @opts.each do |opt,arg|
+      case opt
+      when '--help'
+        puts Usage
+        exit(0)
+      when '--full'
+        @mode = :full
+      when '--save'
+        @save = true
+      when '--number'
+        @number = Integer(arg)
+      end
+    end
+
+    @attack_strength = ARGV[0]
+    @defense_strength = ARGV[1]
+  end
+
+  def all_by_attribute(attr,a,d)
+    cardset = Model.do_search(@db,Search.new.live.match("attribute",attr))
+
+    result = []
+    attackers = cardset.clone
+    defenders = cardset.clone
+
+    count = 1
+    while ( attackers.size >= 5 ) do
+
+      optimiser = Optimiser.new(attackers)
+      optimiser.mode = "attack"
+      optimiser.strength = a
+      deck_a = optimiser.execute_glpk
+
+      optimiser = Optimiser.new(defenders)
+      optimiser.mode = "defense"
+      optimiser.strength = d
+      deck_d = optimiser.execute_glpk(deck_a)
+
+      attackers.delete_if { |c| deck_a.include?(c) }
+      defenders.delete_if { |c| deck_d.include?(c) }
+
+      leader_candidates = deck_a & deck_d
+
+      return result if leader_candidates.empty?
+
+      leader = leader_candidates.sort_by! { |c| c["attack"] }.pop
+      deck_a.delete(leader)
+      deck_d.delete(leader)
+
+      deck = Deck.new(leader, deck_a, deck_d).set_name("#{attr} #{count}")
+      result.push(deck)
+      short_name="Auto_"+attr[0]+count.to_s
+      deck.set_as(@db, short_name) if @save
+
+      count = count + 1
+    end
+    result
+  end
+
+  def cardstring(card)
+    if @display == :full
+      card.pretty
+    else
+      card["card"]
+    end
+  end
+
+  def run
+    SQLite3::Database.new( DATABASE ) do |db|
+      @db = db
+      decks = []
+
+      decks = [ "Teen", "Chick", "Madame", "Lady" ].flat_map do |attr|
+        all_by_attribute(attr, @attack_strength,  @defense_strength).map do |d|
+          { :attr => attr, :power => d.attack + d.defense, :deck => d }
+        end
+      end
+
+      decks.sort_by { |d| -d[:power] }.take(@number).each do |x|
+        if ( @mode == :brief ) then
+          puts "#{x[:deck].name} : #{x[:deck].to_s} #{x[:deck].attack}/#{x[:deck].defense}"
+        else
+          puts x[:deck].name
+          puts x[:deck].full_info
+        end
+      end
+    end
+  end
+
+end
+
+
+Deck_builder.new.run

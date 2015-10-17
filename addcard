@@ -5,7 +5,19 @@ require './model.rb'
 
 DATABASE="cards.db"
 
+
 class Addcard
+  Rarity_codes = Model.rarities.map { |s| s.gsub(/[a-z]/,'') }
+  Usage = %(
+addcard [--help] [--source SOURCE] key=value...
+ -h, --help:
+  show help
+ -s, --source SOURCE:
+  set source
+ key=value:
+  non-default fields set
+)
+  
   def initialize
     opts = GetoptLong.new(
       [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
@@ -19,15 +31,8 @@ class Addcard
     opts.each do |opt,arg|
       case opt
       when '--help'
-        puts <<-END
-addcard [--help] [--source SOURCE] key=value...
- -h, --help:
-  show help
- -s, --source SOURCE:
-  set source
- key=value:
-  non-default fields set
-END
+        puts Usage
+        exit(0)
       when '--source'
         @source = arg
       when '--quiet'
@@ -36,12 +41,29 @@ END
     end
   end
 
+  def fail(msg)
+    puts msg
+    puts Usage
+    exit(1)
+  end
+
   def assignments(args)
     temp_values = {}
     args.each do |kv|
+      # some handy special cases
+      
       (k,v)=kv.split('=')
-
-      if ( k == "attack" ) then
+      if v.nil? then
+        if ( (k.length > 1) && Model.normalize_attribute(k) )
+          temp_values["attribute"] = k
+        elsif ( Rarity_codes.include? k ) then
+          temp_values["rarity"] = Model.rarities[ Rarity_codes.find_index k ]
+        elsif ( (k.length > 1) &&  Model.normalize_rarity(k) )
+          temp_values["rarity"] = k
+        else
+          fail( "Unknown value #{k}" )
+        end
+      elsif ( k == "attack" ) then
         combat = v.split(',')
         temp_values[k] = combat[0]
         temp_values["defense"] = combat[1] if combat.length > 1

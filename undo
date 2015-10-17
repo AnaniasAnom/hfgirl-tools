@@ -11,8 +11,9 @@ opts = GetoptLong.new(
 )
 
 Usage = %(
-undo [-q] 
-undo the last transaction (just query it if -q)
+undo [-q] [transitionid]
+undo a transaction (just query it if -q)
+    if none given, use the last one
 )
 
 newstates =[]
@@ -28,10 +29,17 @@ opts.each do |opt,arg|
   end
 end
 
+if ARGV[0] then
+  trans = ARGV[0].to_i
+else
+  trans = nil
+end
 
 SQLite3::Database.new( DATABASE ) do |db|
-  trans = db.get_first_value( "select max(transition) from cardtransition" )
-
+  if (trans.nil?) then
+    trans = db.get_first_value( "select max(transition) from cardtransition" )
+  end
+  
   data = db.execute( "select
  role, transitiontype, timestamp, 
  c1.card, c1.name, c2.card, c2.name, c2.live, cardstate
